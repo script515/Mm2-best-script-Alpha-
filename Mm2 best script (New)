@@ -350,12 +350,449 @@ local ESPBtn = CreateButton("👁️ ESP: ENABLED", Color3.fromRGB(46, 125, 50),
     btn.Text = "👁️ ESP: " .. (ESPToggle and "ENABLED" or "DISABLED")
     btn.BackgroundColor3 = ESPToggle and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
 end)
+--[[
+	MM2 VIP Panel + Max 2 Teleports Limit Per Dropped Gun (Fixed)
+]]
+
+-- // Services \\ --
+local Services = setmetatable({}, {__index = function(Self, Index)
+    local NewService = game:GetService(Index)
+    if NewService then
+        Self[Index] = NewService
+    end
+    return NewService
+end})
+
+local LocalPlayer = Services.Players.LocalPlayer
+local UserInputService = Services.UserInputService
+
+-- [ Variables ] --
+local Roles = { Murderer = nil, Sheriff = nil, InnocentPlayers = {} }
+local ESPInstances = {}
+local GunESPInstances = {}
+local ESPToggle = true
+local InnocentESPToggle = true
+local GunESPToggle = true
+local SilentAIMEnabled = true
+local AutoPickGunEnabled = true
+local PanelVisible = true
+
+-- 🎯 Auto Pick Limit Variables
+local maxTeleportAttempts = 2
+local currentTeleportAttempts = 0
+local lastTrackedGun = nil
+
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+
+LocalPlayer.CharacterAdded:Connect(function(Char)
+    Character = Char
+    Humanoid = Char:WaitForChild("Humanoid")
+end)
+
+-- // GUI CREATION \\ --
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MM2_Helper_GUI"
+ScreenGui.ResetOnSpawn = false
+
+local successParent = pcall(function()
+    ScreenGui.Parent = Services.CoreGui
+end)
+if not successParent then
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- 📌 MAIN PANEL TOGGLE BUTTON (TOP LEFT)
+local ToggleGuiBtn = Instance.new("TextButton")
+ToggleGuiBtn.Name = "ToggleGuiButton"
+ToggleGuiBtn.Size = UDim2.new(0, 110, 0, 35)
+ToggleGuiBtn.Position = UDim2.new(0, 15, 0, 15)
+ToggleGuiBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+ToggleGuiBtn.Text = "📌 VIP PANEL"
+ToggleGuiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleGuiBtn.Font = Enum.Font.GothamBold
+ToggleGuiBtn.TextSize = 12
+ToggleGuiBtn.Active = true
+ToggleGuiBtn.Draggable = true
+ToggleGuiBtn.Parent = ScreenGui
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 8)
+ToggleCorner.Parent = ToggleGuiBtn
+
+local ToggleStroke = Instance.new("UIStroke")
+ToggleStroke.Thickness = 2
+ToggleStroke.Color = Color3.fromRGB(0, 170, 255)
+ToggleStroke.Parent = ToggleGuiBtn
+
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 220, 0, 420)
+MainFrame.Position = UDim2.new(0.05, 0, 0.25, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = PanelVisible
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
+
+-- Title
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 35)
+Title.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+Title.Text = "⚡ MM2 VIP PANEL"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 13
+Title.Parent = MainFrame
+
+local Container = Instance.new("Frame")
+Container.Size = UDim2.new(1, -20, 1, -45)
+Container.Position = UDim2.new(0, 10, 0, 40)
+Container.BackgroundTransparency = 1
+Container.Parent = MainFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Parent = Container
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 6)
+
+-- 🔄 TOGGLE PANEL LOGIC
+local function ToggleMainPanel()
+    PanelVisible = not PanelVisible
+    MainFrame.Visible = PanelVisible
+end
+
+ToggleGuiBtn.MouseButton1Click:Connect(ToggleMainPanel)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.Insert then
+        ToggleMainPanel()
+    end
+end)
+
+local function CreateButton(text, color, callback)
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(1, 0, 0, 32)
+    Btn.BackgroundColor3 = color
+    Btn.Text = text
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Btn.Font = Enum.Font.GothamSemibold
+    Btn.TextSize = 11
+    Btn.Parent = Container
+
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 6)
+    Corner.Parent = Btn
+
+    Btn.MouseButton1Click:Connect(function() callback(Btn) end)
+    return Btn
+end
+
+-- 📌 SHOOT! BUTTON
+local ShootButton = Instance.new("TextButton")
+ShootButton.Name = "ShootButton"
+ShootButton.Size = UDim2.new(0, 110, 0, 110)
+ShootButton.Position = UDim2.new(0.8, 0, 0.6, 0)
+ShootButton.BackgroundColor3 = Color3.fromRGB(220, 35, 35)
+ShootButton.Text = "SHOOT! 🎯"
+ShootButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ShootButton.Font = Enum.Font.GothamBlack
+ShootButton.TextSize = 18
+ShootButton.Visible = SilentAIMEnabled
+ShootButton.Active = true
+ShootButton.Draggable = true
+ShootButton.Parent = ScreenGui
+
+local ShootCorner = Instance.new("UICorner")
+ShootCorner.CornerRadius = UDim.new(1, 0)
+ShootCorner.Parent = ShootButton
+
+local ShootStroke = Instance.new("UIStroke")
+ShootStroke.Thickness = 4
+ShootStroke.Color = Color3.fromRGB(255, 255, 255)
+ShootStroke.Parent = ShootButton
+
+-- // FUNCTIONS & ESP \\ --
+local Functions = {}
+
+function Functions.ClearESP()
+    for _, obj in ipairs(ESPInstances) do
+        if obj and obj.Parent then
+            obj:Destroy()
+        end
+    end
+    table.clear(ESPInstances)
+end
+
+function Functions.ClearGunESP()
+    for _, obj in ipairs(GunESPInstances) do
+        if obj and obj.Parent then
+            obj:Destroy()
+        end
+    end
+    table.clear(GunESPInstances)
+end
+
+function Functions.CreateESP(Player, RoleName, Color)
+    if not Player or not Player.Character or Player == LocalPlayer then return end
+    local Head = Player.Character:FindFirstChild("Head")
+    local Root = Player.Character:FindFirstChild("HumanoidRootPart")
+    if not Head or not Root then return end
+
+    local Box = Instance.new("BoxHandleAdornment")
+    Box.Name = "VIP_Box"
+    Box.Size = Root.Size + Vector3.new(0.1, 0.1, 0.1)
+    Box.Visible = ESPToggle
+    Box.Adornee = Root
+    Box.Color3 = Color
+    Box.AlwaysOnTop = true
+    Box.ZIndex = 5
+    Box.Transparency = 0.5
+    Box.Parent = Root
+    table.insert(ESPInstances, Box)
+
+    local Bb = Instance.new("BillboardGui")
+    Bb.Name = "VIP_ESP"
+    Bb.Adornee = Head
+    Bb.Size = UDim2.new(0, 150, 0, 40)
+    Bb.StudsOffset = Vector3.new(0, 2.5, 0)
+    Bb.AlwaysOnTop = true
+    Bb.Enabled = ESPToggle
+    Bb.Parent = Head
+
+    local TagLabel = Instance.new("TextLabel")
+    TagLabel.Size = UDim2.new(1, 0, 1, 0)
+    TagLabel.BackgroundTransparency = 1
+    TagLabel.Text = Player.Name .. "\n[" .. RoleName .. "]"
+    TagLabel.TextColor3 = Color
+    TagLabel.Font = Enum.Font.GothamBold
+    TagLabel.TextSize = 12
+    TagLabel.TextStrokeTransparency = 0
+    TagLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    TagLabel.Parent = Bb
+    
+    table.insert(ESPInstances, Bb)
+end
+
+function Functions.UpdateAllESP()
+    Functions.ClearESP()
+    if not ESPToggle then return end
+
+    for _, p in ipairs(Services.Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            if p == Roles.Murderer then
+                Functions.CreateESP(p, "🔪 MURDERER", Color3.fromRGB(255, 40, 40))
+            elseif p == Roles.Sheriff then
+                Functions.CreateESP(p, "🔫 SHERIFF", Color3.fromRGB(40, 120, 255))
+            else
+                if InnocentESPToggle then
+                    Functions.CreateESP(p, "😇 INNOCENT", Color3.fromRGB(50, 225, 50))
+                end
+            end
+        end
+    end
+end
+
+-- 🎯 GUN DETECTION & GUN ESP
+local isTeleporting = false
+
+local function FindDroppedGun()
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v.Name == "GunDrop" or v.Name == "NormalGunDrop" then
+            if v:IsA("BasePart") then return v end
+            if v:IsA("Model") then
+                local Part = v:FindFirstChildWhichIsA("BasePart", true)
+                if Part then return Part end
+            end
+        elseif v.Name == "Gun" and v.Parent == workspace then
+            if v:IsA("BasePart") then return v end
+            if v:IsA("Tool") then
+                local Handle = v:FindFirstChild("Handle") or v:FindFirstChildWhichIsA("BasePart")
+                if Handle then return Handle end
+            end
+        end
+    end
+    return nil
+end
+
+function Functions.UpdateGunESP()
+    Functions.ClearGunESP()
+    if not GunESPToggle then return end
+
+    local GunPart = FindDroppedGun()
+    if GunPart then
+        local Box = Instance.new("BoxHandleAdornment")
+        Box.Name = "Gun_Box"
+        Box.Size = Vector3.new(2, 2, 2)
+        Box.Visible = true
+        Box.Adornee = GunPart
+        Box.Color3 = Color3.fromRGB(255, 215, 0)
+        Box.AlwaysOnTop = true
+        Box.ZIndex = 6
+        Box.Transparency = 0.3
+        Box.Parent = GunPart
+        table.insert(GunESPInstances, Box)
+
+        local Bb = Instance.new("BillboardGui")
+        Bb.Name = "Gun_ESP"
+        Bb.Adornee = GunPart
+        Bb.Size = UDim2.new(0, 120, 0, 30)
+        Bb.StudsOffset = Vector3.new(0, 1.5, 0)
+        Bb.AlwaysOnTop = true
+        Bb.Enabled = true
+        Bb.Parent = GunPart
+
+        local TagLabel = Instance.new("TextLabel")
+        TagLabel.Size = UDim2.new(1, 0, 1, 0)
+        TagLabel.BackgroundTransparency = 1
+        TagLabel.Text = "🔫 DROPPED GUN"
+        TagLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+        TagLabel.Font = Enum.Font.GothamBold
+        TagLabel.TextSize = 12
+        TagLabel.TextStrokeTransparency = 0
+        TagLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        TagLabel.Parent = Bb
+
+        table.insert(GunESPInstances, Bb)
+    end
+end
+
+local function ProcessAutoPick()
+    if not AutoPickGunEnabled or isTeleporting then return end
+
+    local CurrentChar = LocalPlayer.Character
+    local RootPart = CurrentChar and CurrentChar:FindFirstChild("HumanoidRootPart")
+    if not RootPart then return end
+
+    -- Check if player already has gun
+    if CurrentChar:FindFirstChild("Gun") or LocalPlayer.Backpack:FindFirstChild("Gun") then return end
+
+    local GunPart = FindDroppedGun()
+    if GunPart then
+        -- 🔄 Reset count if a new gun drops
+        if lastTrackedGun ~= GunPart then
+            lastTrackedGun = GunPart
+            currentTeleportAttempts = 0
+        end
+
+        -- ⛔ Stop if max limit (2 attempts) reached for this gun
+        if currentTeleportAttempts >= maxTeleportAttempts then
+            return
+        end
+
+        isTeleporting = true
+        currentTeleportAttempts = currentTeleportAttempts + 1
+
+        local OldCFrame = RootPart.CFrame
+        
+        -- Teleport to gun
+        RootPart.CFrame = GunPart.CFrame + Vector3.new(0, 1.5, 0)
+        Services.StarterGui:SetCore("SendNotification", {
+            Title = "🤖 Auto Pick (" .. currentTeleportAttempts .. "/" .. maxTeleportAttempts .. ")", 
+            Text = "Attempting to collect gun...", 
+            Duration = 1.5
+        })
+        
+        task.wait(0.2)
+        
+        -- Teleport back
+        RootPart.CFrame = OldCFrame
+        task.wait(0.4)
+        isTeleporting = false
+    else
+        lastTrackedGun = nil
+        currentTeleportAttempts = 0
+    end
+end
+
+-- Loop
+task.spawn(function()
+    while task.wait(0.5) do
+        Functions.UpdateGunESP()
+        if AutoPickGunEnabled then
+            ProcessAutoPick()
+        end
+    end
+end)
+
+-- 🎯 SILENT AIM SHOOTING
+ShootButton.MouseButton1Click:Connect(function()
+    if not Roles.Murderer or not Roles.Murderer.Character then
+        Services.StarterGui:SetCore("SendNotification", {Title = "Error", Text = "Murderer not found!", Duration = 2})
+        return
+    end
+
+    local CurrentChar = LocalPlayer.Character
+    if not CurrentChar then return end
+
+    local RootPart = CurrentChar:FindFirstChild("HumanoidRootPart")
+    local Gun = CurrentChar:FindFirstChild("Gun") or LocalPlayer.Backpack:FindFirstChild("Gun")
+    
+    if not Gun then
+        Services.StarterGui:SetCore("SendNotification", {Title = "Error", Text = "No gun in inventory!", Duration = 2})
+        return
+    end
+
+    if Gun.Parent ~= CurrentChar then
+        local Hum = CurrentChar:FindFirstChildOfClass("Humanoid")
+        if Hum then
+            Hum:EquipTool(Gun)
+            task.wait(0.15)
+        end
+    end
+
+    local TargetPart = Roles.Murderer.Character:FindFirstChild("HumanoidRootPart") or Roles.Murderer.Character.PrimaryPart
+    if not TargetPart or not RootPart then return end
+
+    local Attachment = RootPart:FindFirstChild("GunRaycastAttachment")
+    local StartCFrame = Attachment and Attachment.WorldCFrame or RootPart.CFrame
+
+    local TargetVelocity = TargetPart.AssemblyLinearVelocity or Vector3.new(0, 0, 0)
+    local PredictedPosition = TargetPart.Position + (TargetVelocity / 15)
+    local TargetCFrame = CFrame.new(PredictedPosition)
+
+    local ShootRemote = Gun:FindFirstChild("Shoot")
+    if ShootRemote and ShootRemote:IsA("RemoteEvent") then
+        ShootRemote:FireServer(StartCFrame, TargetCFrame)
+        Services.StarterGui:SetCore("SendNotification", {Title = "BOOM! 💥", Text = "Shot fired at Murderer!", Duration = 2})
+    end
+end)
+
+-- // PANEL BUTTONS \\ --
+CreateButton("🔍 Show Roles", Color3.fromRGB(45, 45, 60), function()
+    if Roles.Murderer and Roles.Murderer.Parent then
+        Services.StarterGui:SetCore("SendNotification", {Title = 'Murderer 🔪', Text = Roles.Murderer.Name, Duration = 4})
+    end
+    if Roles.Sheriff and Roles.Sheriff.Parent then
+        Services.StarterGui:SetCore("SendNotification", {Title = 'Sheriff 🔫', Text = Roles.Sheriff.Name, Duration = 4})
+    end
+end)
+
+local ESPBtn = CreateButton("👁️ ESP: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
+    ESPToggle = not ESPToggle
+    Functions.UpdateAllESP()
+    btn.Text = "👁️ ESP: " .. (ESPToggle and "ENABLED" or "DISABLED")
+    btn.BackgroundColor3 = ESPToggle and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
+end)
 
 local InnocentESPBtn = CreateButton("😇 Innocent ESP: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
     InnocentESPToggle = not InnocentESPToggle
     Functions.UpdateAllESP()
     btn.Text = "😇 Innocent ESP: " .. (InnocentESPToggle and "ENABLED" or "DISABLED")
     btn.BackgroundColor3 = InnocentESPToggle and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
+end)
+
+local GunESPBtn = CreateButton("🔫 Gun ESP: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
+    GunESPToggle = not GunESPToggle
+    Functions.UpdateGunESP()
+    btn.Text = "🔫 Gun ESP: " .. (GunESPToggle and "ENABLED" or "DISABLED")
+    btn.BackgroundColor3 = GunESPToggle and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
 end)
 
 local AutoPickBtn = CreateButton("🤖 Auto Pick Gun: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
@@ -372,7 +809,7 @@ CreateButton("🔫 Fetch Gun (Manual TP)", Color3.fromRGB(130, 60, 200), functio
             local OldCFrame = RootPart.CFrame
             RootPart.CFrame = GunPart.CFrame + Vector3.new(0, 1, 0)
             Services.StarterGui:SetCore("SendNotification", {Title = "Teleported! ⚡", Text = "Fetching gun...", Duration = 1.5})
-            task.wait(0.18)
+            task.wait(0.15)
             RootPart.CFrame = OldCFrame
         end
     else
@@ -419,6 +856,8 @@ local function TrackPlayer(Player)
         local Backpack = Player:WaitForChild("Backpack", 10)
         if not Backpack then return end
 
+        Roles.InnocentPlayers[Player] = true
+
         for _, item in ipairs(Backpack:GetChildren()) do CheckItem(Player, item) end
         for _, item in ipairs(Char:GetChildren()) do CheckItem(Player, item) end
 
@@ -439,5 +878,6 @@ Services.Players.PlayerAdded:Connect(TrackPlayer)
 Services.Players.PlayerRemoving:Connect(function(Player)
     if Roles.Murderer == Player then Roles.Murderer = nil end
     if Roles.Sheriff == Player then Roles.Sheriff = nil end
+    Roles.InnocentPlayers[Player] = nil
     Functions.UpdateAllESP()
 end)
