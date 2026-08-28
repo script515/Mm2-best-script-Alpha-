@@ -1,5 +1,5 @@
 --[[
-	MM2 VIP Panel + Max 2 Teleports Limit Per Dropped Gun (Fixed)
+	MM2 VIP Panel (Tabbed UI + Fast Auto Farm + 5000 Stud Limit)
 ]]
 
 -- // Services \\ --
@@ -13,19 +13,30 @@ end})
 
 local LocalPlayer = Services.Players.LocalPlayer
 local UserInputService = Services.UserInputService
+local ReplicatedStorage = Services.ReplicatedStorage
+local RunService = Services.RunService
 
 -- [ Variables ] --
 local Roles = { Murderer = nil, Sheriff = nil, InnocentPlayers = {} }
 local ESPInstances = {}
 local GunESPInstances = {}
+
+-- Toggles
 local ESPToggle = true
 local InnocentESPToggle = true
 local GunESPToggle = true
 local SilentAIMEnabled = true
 local AutoPickGunEnabled = true
+local AutoFarmEnabled = false
+local NoclipEnabled = false
+local FarmSpeed = 35 -- Hızlı toplama için hız artırıldı
 local PanelVisible = true
 
--- 🎯 Auto Pick Limit Variables
+-- Dynamic Auto-Height Config & Distance Limit
+local UndergroundMargin = 3 -- Coinden kaç stud aşağıda duracağı
+local MaxFarmDistance = 5000 -- 5000 Stud'dan uzaktaki coinlere gitmez!
+
+-- Auto Pick Limit
 local maxTeleportAttempts = 2
 local currentTeleportAttempts = 0
 local lastTrackedGun = nil
@@ -38,9 +49,23 @@ LocalPlayer.CharacterAdded:Connect(function(Char)
     Humanoid = Char:WaitForChild("Humanoid")
 end)
 
+-- 👻 NOCLIP ENGINE
+RunService.Stepped:Connect(function()
+    if NoclipEnabled or AutoFarmEnabled then
+        local Char = LocalPlayer.Character
+        if Char then
+            for _, part in ipairs(Char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
 -- // GUI CREATION \\ --
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "MM2_Helper_GUI"
+ScreenGui.Name = "MM2_VIP_Tabbed_GUI"
 ScreenGui.ResetOnSpawn = false
 
 local successParent = pcall(function()
@@ -50,7 +75,7 @@ if not successParent then
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 end
 
--- 📌 MAIN PANEL TOGGLE BUTTON (TOP LEFT)
+-- 📌 MAIN TOGGLE BUTTON
 local ToggleGuiBtn = Instance.new("TextButton")
 ToggleGuiBtn.Name = "ToggleGuiButton"
 ToggleGuiBtn.Size = UDim2.new(0, 110, 0, 35)
@@ -73,10 +98,10 @@ ToggleStroke.Thickness = 2
 ToggleStroke.Color = Color3.fromRGB(0, 170, 255)
 ToggleStroke.Parent = ToggleGuiBtn
 
--- Main Frame
+-- 📦 MAIN FRAME
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 220, 0, 420)
+MainFrame.Size = UDim2.new(0, 240, 0, 320)
 MainFrame.Position = UDim2.new(0.05, 0, 0.25, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 MainFrame.BorderSizePixel = 0
@@ -85,13 +110,13 @@ MainFrame.Draggable = true
 MainFrame.Visible = PanelVisible
 MainFrame.Parent = ScreenGui
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = MainFrame
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = MainFrame
 
 -- Title
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 35)
+Title.Size = UDim2.new(1, 0, 0, 32)
 Title.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
 Title.Text = "⚡ MM2 VIP PANEL"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -99,16 +124,83 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 13
 Title.Parent = MainFrame
 
-local Container = Instance.new("Frame")
-Container.Size = UDim2.new(1, -20, 1, -45)
-Container.Position = UDim2.new(0, 10, 0, 40)
-Container.BackgroundTransparency = 1
-Container.Parent = MainFrame
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = Title
 
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Parent = Container
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 6)
+-- 🗂️ TABS CONTAINER
+local TabHeaderFrame = Instance.new("Frame")
+TabHeaderFrame.Size = UDim2.new(1, -10, 0, 28)
+TabHeaderFrame.Position = UDim2.new(0, 5, 0, 36)
+TabHeaderFrame.BackgroundTransparency = 1
+TabHeaderFrame.Parent = MainFrame
+
+local TabListLayout = Instance.new("UIListLayout")
+TabListLayout.Parent = TabHeaderFrame
+TabListLayout.FillDirection = Enum.FillDirection.Horizontal
+TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+TabListLayout.Padding = UDim.new(0, 4)
+
+-- Pages Frame
+local PagesFrame = Instance.new("Frame")
+PagesFrame.Size = UDim2.new(1, -20, 1, -75)
+PagesFrame.Position = UDim2.new(0, 10, 0, 68)
+PagesFrame.BackgroundTransparency = 1
+PagesFrame.Parent = MainFrame
+
+local Pages = {}
+
+local function CreateTab(name, order)
+    local TabBtn = Instance.new("TextButton")
+    TabBtn.Size = UDim2.new(0.31, 0, 1, 0)
+    TabBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    TabBtn.Text = name
+    TabBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+    TabBtn.Font = Enum.Font.GothamBold
+    TabBtn.TextSize = 10
+    TabBtn.LayoutOrder = order
+    TabBtn.Parent = TabHeaderFrame
+
+    local TabCorner = Instance.new("UICorner")
+    TabCorner.CornerRadius = UDim.new(0, 6)
+    TabCorner.Parent = TabBtn
+
+    local Page = Instance.new("ScrollingFrame")
+    Page.Size = UDim2.new(1, 0, 1, 0)
+    Page.BackgroundTransparency = 1
+    Page.Visible = false
+    Page.ScrollBarThickness = 3
+    Page.Parent = PagesFrame
+
+    local PageLayout = Instance.new("UIListLayout")
+    PageLayout.Parent = Page
+    PageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    PageLayout.Padding = UDim.new(0, 5)
+
+    Pages[name] = { Button = TabBtn, Frame = Page }
+
+    TabBtn.MouseButton1Click:Connect(function()
+        for _, t in pairs(Pages) do
+            t.Frame.Visible = false
+            t.Button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            t.Button.TextColor3 = Color3.fromRGB(180, 180, 180)
+        end
+        Page.Visible = true
+        TabBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 255)
+        TabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end)
+
+    return Page
+end
+
+local MainPage = CreateTab("Main", 1)
+local VisualsPage = CreateTab("Visuals/Aim", 2)
+local FarmPage = CreateTab("Auto Farm", 3)
+
+-- Set default tab
+Pages["Main"].Frame.Visible = true
+Pages["Main"].Button.BackgroundColor3 = Color3.fromRGB(0, 140, 255)
+Pages["Main"].Button.TextColor3 = Color3.fromRGB(255, 255, 255)
 
 -- 🔄 TOGGLE PANEL LOGIC
 local function ToggleMainPanel()
@@ -124,15 +216,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
-local function CreateButton(text, color, callback)
+local function CreateButton(parent, text, color, callback)
     local Btn = Instance.new("TextButton")
-    Btn.Size = UDim2.new(1, 0, 0, 32)
+    Btn.Size = UDim2.new(1, -5, 0, 30)
     Btn.BackgroundColor3 = color
     Btn.Text = text
     Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     Btn.Font = Enum.Font.GothamSemibold
-    Btn.TextSize = 11
-    Btn.Parent = Container
+    Btn.TextSize = 10
+    Btn.Parent = parent
 
     local Corner = Instance.new("UICorner")
     Corner.CornerRadius = UDim.new(0, 6)
@@ -145,13 +237,13 @@ end
 -- 📌 SHOOT! BUTTON
 local ShootButton = Instance.new("TextButton")
 ShootButton.Name = "ShootButton"
-ShootButton.Size = UDim2.new(0, 110, 0, 110)
-ShootButton.Position = UDim2.new(0.8, 0, 0.6, 0)
+ShootButton.Size = UDim2.new(0, 100, 0, 100)
+ShootButton.Position = UDim2.new(0.82, 0, 0.6, 0)
 ShootButton.BackgroundColor3 = Color3.fromRGB(220, 35, 35)
 ShootButton.Text = "SHOOT! 🎯"
 ShootButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ShootButton.Font = Enum.Font.GothamBlack
-ShootButton.TextSize = 18
+ShootButton.TextSize = 16
 ShootButton.Visible = SilentAIMEnabled
 ShootButton.Active = true
 ShootButton.Draggable = true
@@ -162,7 +254,7 @@ ShootCorner.CornerRadius = UDim.new(1, 0)
 ShootCorner.Parent = ShootButton
 
 local ShootStroke = Instance.new("UIStroke")
-ShootStroke.Thickness = 4
+ShootStroke.Thickness = 3
 ShootStroke.Color = Color3.fromRGB(255, 255, 255)
 ShootStroke.Parent = ShootButton
 
@@ -171,18 +263,14 @@ local Functions = {}
 
 function Functions.ClearESP()
     for _, obj in ipairs(ESPInstances) do
-        if obj and obj.Parent then
-            obj:Destroy()
-        end
+        if obj and obj.Parent then obj:Destroy() end
     end
     table.clear(ESPInstances)
 end
 
 function Functions.ClearGunESP()
     for _, obj in ipairs(GunESPInstances) do
-        if obj and obj.Parent then
-            obj:Destroy()
-        end
+        if obj and obj.Parent then obj:Destroy() end
     end
     table.clear(GunESPInstances)
 end
@@ -208,7 +296,7 @@ function Functions.CreateESP(Player, RoleName, Color)
     local Bb = Instance.new("BillboardGui")
     Bb.Name = "VIP_ESP"
     Bb.Adornee = Head
-    Bb.Size = UDim2.new(0, 150, 0, 40)
+    Bb.Size = UDim2.new(0, 140, 0, 35)
     Bb.StudsOffset = Vector3.new(0, 2.5, 0)
     Bb.AlwaysOnTop = true
     Bb.Enabled = ESPToggle
@@ -220,7 +308,7 @@ function Functions.CreateESP(Player, RoleName, Color)
     TagLabel.Text = Player.Name .. "\n[" .. RoleName .. "]"
     TagLabel.TextColor3 = Color
     TagLabel.Font = Enum.Font.GothamBold
-    TagLabel.TextSize = 12
+    TagLabel.TextSize = 11
     TagLabel.TextStrokeTransparency = 0
     TagLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     TagLabel.Parent = Bb
@@ -247,7 +335,7 @@ function Functions.UpdateAllESP()
     end
 end
 
--- 🎯 GUN DETECTION & GUN ESP
+-- 🎯 GUN DETECTION
 local isTeleporting = false
 
 local function FindDroppedGun()
@@ -302,7 +390,7 @@ function Functions.UpdateGunESP()
         TagLabel.Text = "🔫 DROPPED GUN"
         TagLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
         TagLabel.Font = Enum.Font.GothamBold
-        TagLabel.TextSize = 12
+        TagLabel.TextSize = 11
         TagLabel.TextStrokeTransparency = 0
         TagLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
         TagLabel.Parent = Bb
@@ -318,38 +406,30 @@ local function ProcessAutoPick()
     local RootPart = CurrentChar and CurrentChar:FindFirstChild("HumanoidRootPart")
     if not RootPart then return end
 
-    -- Check if player already has gun
     if CurrentChar:FindFirstChild("Gun") or LocalPlayer.Backpack:FindFirstChild("Gun") then return end
 
     local GunPart = FindDroppedGun()
     if GunPart then
-        -- 🔄 Reset count if a new gun drops
         if lastTrackedGun ~= GunPart then
             lastTrackedGun = GunPart
             currentTeleportAttempts = 0
         end
 
-        -- ⛔ Stop if max limit (2 attempts) reached for this gun
-        if currentTeleportAttempts >= maxTeleportAttempts then
-            return
-        end
+        if currentTeleportAttempts >= maxTeleportAttempts then return end
 
         isTeleporting = true
         currentTeleportAttempts = currentTeleportAttempts + 1
 
         local OldCFrame = RootPart.CFrame
-        
-        -- Teleport to gun
         RootPart.CFrame = GunPart.CFrame + Vector3.new(0, 1.5, 0)
+        
         Services.StarterGui:SetCore("SendNotification", {
             Title = "🤖 Auto Pick (" .. currentTeleportAttempts .. "/" .. maxTeleportAttempts .. ")", 
-            Text = "Attempting to collect gun...", 
+            Text = "Attempting gun pickup...", 
             Duration = 1.5
         })
         
         task.wait(0.2)
-        
-        -- Teleport back
         RootPart.CFrame = OldCFrame
         task.wait(0.4)
         isTeleporting = false
@@ -359,7 +439,85 @@ local function ProcessAutoPick()
     end
 end
 
--- Loop
+-- 💰 FAST & SMART DISTANCE-LIMITED AUTO FARM LOGIC
+local function GetClosestCoin()
+    local RootPart = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not RootPart then return nil end
+
+    local ClosestCoin = nil
+    local ShortestDistance = math.huge
+
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if (v.Name == "Coin_Container" or v.Name == "Coin" or v.Name == "CoinServer") and v:IsA("BasePart") then
+            if v.Transparency < 1 then
+                local dist = (RootPart.Position - v.Position).Magnitude
+                -- 🛑 5000 STUD SINIRI KONTROLÜ
+                if dist <= MaxFarmDistance and dist < ShortestDistance then
+                    ShortestDistance = dist
+                    ClosestCoin = v
+                end
+            end
+        end
+    end
+
+    if not ClosestCoin then
+        for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
+            if string.find(string.lower(v.Name), "coin") and (v:IsA("BasePart") or v:IsA("Model")) then
+                local TargetPart = v:IsA("BasePart") and v or v:FindFirstChildWhichIsA("BasePart")
+                if TargetPart then
+                    local RealCoin = workspace:FindFirstChild(v.Name, true)
+                    if RealCoin and RealCoin:IsA("BasePart") and RealCoin.Transparency < 1 then
+                        local dist = (RootPart.Position - RealCoin.Position).Magnitude
+                        -- 🛑 5000 STUD SINIRI KONTROLÜ
+                        if dist <= MaxFarmDistance and dist < ShortestDistance then
+                            ShortestDistance = dist
+                            ClosestCoin = RealCoin
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return ClosestCoin
+end
+
+task.spawn(function()
+    while true do
+        task.wait(0.05)
+        if AutoFarmEnabled then
+            local Char = LocalPlayer.Character
+            local RootPart = Char and Char:FindFirstChild("HumanoidRootPart")
+            local Hum = Char and Char:FindFirstChildOfClass("Humanoid")
+
+            if RootPart and Hum and Hum.Health > 0 then
+                local TargetCoin = GetClosestCoin()
+                if TargetCoin then
+                    local AutoTargetPos = Vector3.new(TargetCoin.Position.X, TargetCoin.Position.Y - UndergroundMargin, TargetCoin.Position.Z)
+                    
+                    while AutoFarmEnabled and TargetCoin and TargetCoin.Parent and TargetCoin.Transparency < 1 do
+                        AutoTargetPos = Vector3.new(TargetCoin.Position.X, TargetCoin.Position.Y - UndergroundMargin, TargetCoin.Position.Z)
+                        
+                        local direction = (AutoTargetPos - RootPart.Position).Unit
+                        local distance = (AutoTargetPos - RootPart.Position).Magnitude
+
+                        if distance < 4 then
+                            -- Instant Grab without delay
+                            RootPart.CFrame = CFrame.new(TargetCoin.Position)
+                            break
+                        else
+                            RootPart.Velocity = Vector3.new(0, 0, 0)
+                            RootPart.CFrame = CFrame.new(RootPart.Position + direction * (FarmSpeed * 0.1))
+                        end
+                        task.wait(0.005) -- Ultra hızlı pozisyon güncelleme
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Main Loop
 task.spawn(function()
     while task.wait(0.5) do
         Functions.UpdateGunESP()
@@ -412,8 +570,8 @@ ShootButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- // PANEL BUTTONS \\ --
-CreateButton("🔍 Show Roles", Color3.fromRGB(45, 45, 60), function()
+-- // TAB 1: MAIN PAGE BUTTONS \\ --
+CreateButton(MainPage, "🔍 Show Roles", Color3.fromRGB(45, 45, 60), function()
     if Roles.Murderer and Roles.Murderer.Parent then
         Services.StarterGui:SetCore("SendNotification", {Title = 'Murderer 🔪', Text = Roles.Murderer.Name, Duration = 4})
     end
@@ -422,34 +580,13 @@ CreateButton("🔍 Show Roles", Color3.fromRGB(45, 45, 60), function()
     end
 end)
 
-local ESPBtn = CreateButton("👁️ ESP: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
-    ESPToggle = not ESPToggle
-    Functions.UpdateAllESP()
-    btn.Text = "👁️ ESP: " .. (ESPToggle and "ENABLED" or "DISABLED")
-    btn.BackgroundColor3 = ESPToggle and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
-end)
-
-local InnocentESPBtn = CreateButton("😇 Innocent ESP: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
-    InnocentESPToggle = not InnocentESPToggle
-    Functions.UpdateAllESP()
-    btn.Text = "😇 Innocent ESP: " .. (InnocentESPToggle and "ENABLED" or "DISABLED")
-    btn.BackgroundColor3 = InnocentESPToggle and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
-end)
-
-local GunESPBtn = CreateButton("🔫 Gun ESP: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
-    GunESPToggle = not GunESPToggle
-    Functions.UpdateGunESP()
-    btn.Text = "🔫 Gun ESP: " .. (GunESPToggle and "ENABLED" or "DISABLED")
-    btn.BackgroundColor3 = GunESPToggle and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
-end)
-
-local AutoPickBtn = CreateButton("🤖 Auto Pick Gun: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
+local AutoPickBtn = CreateButton(MainPage, "🤖 Auto Pick Gun: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
     AutoPickGunEnabled = not AutoPickGunEnabled
     btn.Text = "🤖 Auto Pick Gun: " .. (AutoPickGunEnabled and "ENABLED" or "DISABLED")
     btn.BackgroundColor3 = AutoPickGunEnabled and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
 end)
 
-CreateButton("🔫 Fetch Gun (Manual TP)", Color3.fromRGB(130, 60, 200), function()
+CreateButton(MainPage, "🔫 Fetch Gun (Manual TP)", Color3.fromRGB(130, 60, 200), function()
     local GunPart = FindDroppedGun()
     if GunPart then
         local RootPart = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -465,7 +602,13 @@ CreateButton("🔫 Fetch Gun (Manual TP)", Color3.fromRGB(130, 60, 200), functio
     end
 end)
 
-local SpeedBtn = CreateButton("⚡ Speed Boost: DISABLED", Color3.fromRGB(180, 40, 40), function(btn)
+local NoclipBtn = CreateButton(MainPage, "👻 Noclip: DISABLED", Color3.fromRGB(180, 40, 40), function(btn)
+    NoclipEnabled = not NoclipEnabled
+    btn.Text = "👻 Noclip: " .. (NoclipEnabled and "ENABLED" or "DISABLED")
+    btn.BackgroundColor3 = NoclipEnabled and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
+end)
+
+local SpeedBtn = CreateButton(MainPage, "⚡ Speed Boost: DISABLED", Color3.fromRGB(180, 40, 40), function(btn)
     local Hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
     if Hum then
         if Hum.WalkSpeed <= 16.5 then
@@ -480,11 +623,44 @@ local SpeedBtn = CreateButton("⚡ Speed Boost: DISABLED", Color3.fromRGB(180, 4
     end
 end)
 
-local AimBtn = CreateButton("🎯 Silent Aim: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
+-- // TAB 2: VISUALS / AIM BUTTONS \\ --
+local ESPBtn = CreateButton(VisualsPage, "👁️ ESP: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
+    ESPToggle = not ESPToggle
+    Functions.UpdateAllESP()
+    btn.Text = "👁️ ESP: " .. (ESPToggle and "ENABLED" or "DISABLED")
+    btn.BackgroundColor3 = ESPToggle and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
+end)
+
+local InnocentESPBtn = CreateButton(VisualsPage, "😇 Innocent ESP: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
+    InnocentESPToggle = not InnocentESPToggle
+    Functions.UpdateAllESP()
+    btn.Text = "😇 Innocent ESP: " .. (InnocentESPToggle and "ENABLED" or "DISABLED")
+    btn.BackgroundColor3 = InnocentESPToggle and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
+end)
+
+local GunESPBtn = CreateButton(VisualsPage, "🔫 Gun ESP: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
+    GunESPToggle = not GunESPToggle
+    Functions.UpdateGunESP()
+    btn.Text = "🔫 Gun ESP: " .. (GunESPToggle and "ENABLED" or "DISABLED")
+    btn.BackgroundColor3 = GunESPToggle and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
+end)
+
+local AimBtn = CreateButton(VisualsPage, "🎯 Silent Aim: ENABLED", Color3.fromRGB(46, 125, 50), function(btn)
     SilentAIMEnabled = not SilentAIMEnabled
     ShootButton.Visible = SilentAIMEnabled
     btn.Text = "🎯 Silent Aim: " .. (SilentAIMEnabled and "ENABLED" or "DISABLED")
     btn.BackgroundColor3 = SilentAIMEnabled and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
+end)
+
+-- // TAB 3: AUTO FARM BUTTONS \\ --
+local FarmBtn = CreateButton(FarmPage, "🪙 Fast Auto Farm: OFF", Color3.fromRGB(180, 40, 40), function(btn)
+    AutoFarmEnabled = not AutoFarmEnabled
+    btn.Text = "🪙 Fast Auto Farm: " .. (AutoFarmEnabled and "ON" or "OFF")
+    btn.BackgroundColor3 = AutoFarmEnabled and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
+    
+    if AutoFarmEnabled then
+        Services.StarterGui:SetCore("SendNotification", {Title = "Auto Farm 🪙", Text = "Fast Auto Farm Started! (Max 5000 Studs)", Duration = 2})
+    end
 end)
 
 -- Role Track Listeners
