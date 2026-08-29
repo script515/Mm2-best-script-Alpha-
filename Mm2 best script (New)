@@ -1,6 +1,31 @@
 --[[
-	MM2 VIP Panel (Tabbed UI + Fast Auto Farm + 5000 Stud Limit)
+	MM2 VIP Panel (Tabbed UI + External Loader Only + Panel Destroy Option)
 ]]
+
+-- // Safe GitHub Loader Function \\ --
+local function startCoinFarmLoader()
+    task.spawn(function()
+        local url = "https://raw.githubusercontent.com/Vocal1sScript/AutoFarm/refs/heads/main/Loader.lua"
+        
+        local success, err = pcall(function()
+            local scriptContent = game:HttpGet(url)
+            if scriptContent and #scriptContent > 0 then
+                local loadedFunc, syntaxErr = loadstring(scriptContent)
+                if loadedFunc then
+                    loadedFunc()
+                else
+                    warn("[Loader] Script syntax hatası:", syntaxErr)
+                end
+            else
+                warn("[Loader] GitHub'dan veri çekilemedi.")
+            end
+        end)
+
+        if not success then
+            warn("[Loader] Çalıştırılırken hata oluştu:", err)
+        end
+    end)
+end
 
 -- // Services \\ --
 local Services = setmetatable({}, {__index = function(Self, Index)
@@ -13,7 +38,6 @@ end})
 
 local LocalPlayer = Services.Players.LocalPlayer
 local UserInputService = Services.UserInputService
-local ReplicatedStorage = Services.ReplicatedStorage
 local RunService = Services.RunService
 
 -- [ Variables ] --
@@ -27,14 +51,8 @@ local InnocentESPToggle = true
 local GunESPToggle = true
 local SilentAIMEnabled = true
 local AutoPickGunEnabled = true
-local AutoFarmEnabled = false
 local NoclipEnabled = false
-local FarmSpeed = 35 -- Hızlı toplama için hız artırıldı
 local PanelVisible = true
-
--- Dynamic Auto-Height Config & Distance Limit
-local UndergroundMargin = 3 -- Coinden kaç stud aşağıda duracağı
-local MaxFarmDistance = 5000 -- 5000 Stud'dan uzaktaki coinlere gitmez!
 
 -- Auto Pick Limit
 local maxTeleportAttempts = 2
@@ -51,7 +69,7 @@ end)
 
 -- 👻 NOCLIP ENGINE
 RunService.Stepped:Connect(function()
-    if NoclipEnabled or AutoFarmEnabled then
+    if NoclipEnabled then
         local Char = LocalPlayer.Character
         if Char then
             for _, part in ipairs(Char:GetDescendants()) do
@@ -439,84 +457,6 @@ local function ProcessAutoPick()
     end
 end
 
--- 💰 FAST & SMART DISTANCE-LIMITED AUTO FARM LOGIC
-local function GetClosestCoin()
-    local RootPart = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not RootPart then return nil end
-
-    local ClosestCoin = nil
-    local ShortestDistance = math.huge
-
-    for _, v in ipairs(workspace:GetDescendants()) do
-        if (v.Name == "Coin_Container" or v.Name == "Coin" or v.Name == "CoinServer") and v:IsA("BasePart") then
-            if v.Transparency < 1 then
-                local dist = (RootPart.Position - v.Position).Magnitude
-                -- 🛑 5000 STUD SINIRI KONTROLÜ
-                if dist <= MaxFarmDistance and dist < ShortestDistance then
-                    ShortestDistance = dist
-                    ClosestCoin = v
-                end
-            end
-        end
-    end
-
-    if not ClosestCoin then
-        for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
-            if string.find(string.lower(v.Name), "coin") and (v:IsA("BasePart") or v:IsA("Model")) then
-                local TargetPart = v:IsA("BasePart") and v or v:FindFirstChildWhichIsA("BasePart")
-                if TargetPart then
-                    local RealCoin = workspace:FindFirstChild(v.Name, true)
-                    if RealCoin and RealCoin:IsA("BasePart") and RealCoin.Transparency < 1 then
-                        local dist = (RootPart.Position - RealCoin.Position).Magnitude
-                        -- 🛑 5000 STUD SINIRI KONTROLÜ
-                        if dist <= MaxFarmDistance and dist < ShortestDistance then
-                            ShortestDistance = dist
-                            ClosestCoin = RealCoin
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    return ClosestCoin
-end
-
-task.spawn(function()
-    while true do
-        task.wait(0.05)
-        if AutoFarmEnabled then
-            local Char = LocalPlayer.Character
-            local RootPart = Char and Char:FindFirstChild("HumanoidRootPart")
-            local Hum = Char and Char:FindFirstChildOfClass("Humanoid")
-
-            if RootPart and Hum and Hum.Health > 0 then
-                local TargetCoin = GetClosestCoin()
-                if TargetCoin then
-                    local AutoTargetPos = Vector3.new(TargetCoin.Position.X, TargetCoin.Position.Y - UndergroundMargin, TargetCoin.Position.Z)
-                    
-                    while AutoFarmEnabled and TargetCoin and TargetCoin.Parent and TargetCoin.Transparency < 1 do
-                        AutoTargetPos = Vector3.new(TargetCoin.Position.X, TargetCoin.Position.Y - UndergroundMargin, TargetCoin.Position.Z)
-                        
-                        local direction = (AutoTargetPos - RootPart.Position).Unit
-                        local distance = (AutoTargetPos - RootPart.Position).Magnitude
-
-                        if distance < 4 then
-                            -- Instant Grab without delay
-                            RootPart.CFrame = CFrame.new(TargetCoin.Position)
-                            break
-                        else
-                            RootPart.Velocity = Vector3.new(0, 0, 0)
-                            RootPart.CFrame = CFrame.new(RootPart.Position + direction * (FarmSpeed * 0.1))
-                        end
-                        task.wait(0.005) -- Ultra hızlı pozisyon güncelleme
-                    end
-                end
-            end
-        end
-    end
-end)
-
 -- Main Loop
 task.spawn(function()
     while task.wait(0.5) do
@@ -653,14 +593,36 @@ local AimBtn = CreateButton(VisualsPage, "🎯 Silent Aim: ENABLED", Color3.from
 end)
 
 -- // TAB 3: AUTO FARM BUTTONS \\ --
-local FarmBtn = CreateButton(FarmPage, "🪙 Fast Auto Farm: OFF", Color3.fromRGB(180, 40, 40), function(btn)
-    AutoFarmEnabled = not AutoFarmEnabled
-    btn.Text = "🪙 Fast Auto Farm: " .. (AutoFarmEnabled and "ON" or "OFF")
-    btn.BackgroundColor3 = AutoFarmEnabled and Color3.fromRGB(46, 125, 50) or Color3.fromRGB(180, 40, 40)
-    
-    if AutoFarmEnabled then
-        Services.StarterGui:SetCore("SendNotification", {Title = "Auto Farm 🪙", Text = "Fast Auto Farm Started! (Max 5000 Studs)", Duration = 2})
+CreateButton(FarmPage, "🚀 Run External Auto Farm", Color3.fromRGB(0, 150, 136), function()
+    startCoinFarmLoader()
+    Services.StarterGui:SetCore("SendNotification", {Title = "Auto Farm 🪙", Text = "External Script Triggered!", Duration = 2})
+end)
+
+CreateButton(FarmPage, "🗑️ Destroy Coin Farm Panel", Color3.fromRGB(200, 40, 40), function()
+    -- Outer/External GUI Uçurma Mantığı
+    local targets = { Services.CoreGui, LocalPlayer:FindFirstChild("PlayerGui") }
+    local count = 0
+
+    for _, parent in ipairs(targets) do
+        if parent then
+            for _, gui in ipairs(parent:GetChildren()) do
+                if gui:IsA("ScreenGui") and gui.Name ~= "MM2_VIP_Tabbed_GUI" then
+                    -- Coin, Farm, Loader veya Vocal1s geçen GUI'leri kaldırır
+                    local lowerName = string.lower(gui.Name)
+                    if string.find(lowerName, "coin") or string.find(lowerName, "farm") or string.find(lowerName, "loader") or string.find(lowerName, "vocal") then
+                        gui:Destroy()
+                        count = count + 1
+                    end
+                end
+            end
+        end
     end
+
+    Services.StarterGui:SetCore("SendNotification", {
+        Title = "Destroyed! 🧹", 
+        Text = count > 0 and (count .. " panel/GUI silindi!") or "Harici UI bulunamadı ama arama yapıldı.", 
+        Duration = 2.5
+    })
 end)
 
 -- Role Track Listeners
